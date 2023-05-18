@@ -9,13 +9,55 @@ pragma solidity ^0.8.9;
 */
 
 contract BankAccount {
+    event Deposit(
+        address indexed user,
+        uint256 indexed accountId,
+        uint256 value,
+        uint256 timestamp
+    );
+
+    event WithdrawlRequest(
+        address indexed user,
+        uint256 indexed accountId,
+        uint256 withdrawRequestId,
+        uint256 amount,
+        uint256 timestamp
+    );
+
+    event RequestApproval(
+        address indexed user,
+        uint256 indexed accountId,
+        uint256 withdrawRequestId,
+        bool isApproved,
+        uint256 timestamp
+    );
+
+    event Withdraw(
+        address indexed user,
+        uint256 indexed accountId,
+        uint256 withdrawRequestId,
+        uint256 amount,
+        uint256 timestamp
+    );
+
+    struct WithdrawRequest {
+        address user;
+        uint amount;
+        bool isApproved;
+        mapping(address => bool) approvers;
+        uint approvalsCount;
+    }
+
     struct Account {
         address[] owners;
+        uint balance;
+        mapping(uint => WithdrawRequest) withdrawRequests;
     }
 
     mapping(uint => Account) accounts;
     mapping(address => uint) userAccountsCounter;
     uint currentAccountId;
+    uint currentWithdrawRequestId;
 
     modifier canCreateAccount(address[] memory otherOwners) {
         require(
@@ -43,6 +85,34 @@ contract BankAccount {
         _;
     }
 
+    modifier isAccountOwner(uint accountId) {
+        bool _isAccountOwner;
+        for (uint idx; idx < accounts[accountId].owners.length; idx++) {
+            if (accounts[accountId].owners[idx] == msg.sender) {
+                _isAccountOwner = true;
+            }
+        }
+        require(
+            _isAccountOwner,
+            "Only account owners can make a deposit to this account"
+        );
+        _;
+    }
+
+    modifier hasSufficientBalance(uint accountId, uint amount) {
+        require(accounts[accountId].balance >= amount, "Insufficient balance.");
+        _;
+    }
+
+    modifier isWithdrwalrequestOwner(uint accountId, uint withdrawalRequestId) {
+        require(
+            accounts[accountId].withdrawRequests[withdrawalRequestId].user ==
+                msg.sender,
+            "You didn't initiate this withdrawal request."
+        );
+        _;
+    }
+
     function createAccount(
         address[] memory otherOwners
     ) external canCreateAccount(otherOwners) {
@@ -61,7 +131,94 @@ contract BankAccount {
         accounts[currentAccountId].owners = owners;
     }
 
+    function deposit(
+        uint accountId
+    ) external payable isAccountOwner(accountId) {
+        accounts[accountId].balance += msg.value;
+        emit Deposit(msg.sender, accountId, msg.value, block.timestamp);
+    }
+
+    function requestWithdrawl(
+        uint accountId,
+        uint amount
+    )
+        external
+        isAccountOwner(accountId)
+        hasSufficientBalance(accountId, amount)
+    {
+        currentWithdrawRequestId++;
+        WithdrawRequest storage withdrawRequest = accounts[accountId]
+            .withdrawRequests[currentWithdrawRequestId];
+        withdrawRequest.amount = amount;
+        withdrawRequest.user = msg.sender;
+        emit WithdrawlRequest(
+            msg.sender,
+            accountId,
+            currentWithdrawRequestId,
+            amount,
+            block.timestamp
+        );
+    }
+
+    function approveWithdrawal(
+        uint accountId,
+        uint withdrawalRequestId
+    ) external isAccountOwner(accountId) {
+        WithdrawRequest storage withdrawRequest = accounts[accountId]
+            .withdrawRequests[withdrawalRequestId];
+        require(
+            withdrawRequest.user != msg.sender,
+            "You can't approve your own withdraw request."
+        );
+        require(
+            !withdrawRequest.approvers[msg.sender],
+            "You already approved this withdraw request."
+        );
+        withdrawRequest.approvers[msg.sender] = true;
+        withdrawRequest.approvalsCount += 1;
+        if (
+            withdrawRequest.approvalsCount ==
+            accounts[accountId].owners.length - 1
+        ) {
+            withdrawRequest.isApproved = true;
+        }
+        emit RequestApproval(
+            msg.sender,
+            accountId,
+            withdrawalRequestId,
+            withdrawRequest.isApproved,
+            block.timestamp
+        );
+    }
+
+    function withdraw(
+        uint accountId,
+        uint withdrawalRequestId
+    )
+        external
+        isAccountOwner(accountId)
+        isWithdrwalrequestOwner(accountId, withdrawalRequestId)
+    {
+        uint amount = accounts[accountId]
+            .withdrawRequests[withdrawalRequestId]
+            .amount;
+        accounts[accountId].balance -= amount;
+        (bool sent, ) = payable(msg.sender).call{value: amount}("");
+        require(sent);
+        emit Withdraw(
+            msg.sender,
+            accountId,
+            withdrawalRequestId,
+            amount,
+            block.timestamp
+        );
+    }
+
     function getUserAccountsCount() public view returns (uint) {
         return userAccountsCounter[msg.sender];
+    }
+
+    function getAccountBalance(uint accountId) public view returns (uint) {
+        return accounts[accountId].balance;
     }
 }

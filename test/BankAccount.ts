@@ -1,6 +1,7 @@
 import { ethers } from "hardhat";
 import { expect } from "chai";
 import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
+import { BankAccount } from "../typechain-types";
 
 describe("Test BankAccount Contract", () => {
   const deploymentFixture = async () => {
@@ -12,6 +13,16 @@ describe("Test BankAccount Contract", () => {
     await BankAccountContract.deployed();
 
     return { BankAccountContract, owner, user1, user2, user3, user4 };
+  };
+
+  const createAccountFixture = (
+    BankAccountContract: BankAccount,
+    otherOwners: string[]
+  ) => {
+    const _createAccountFixture = async () => {
+      await BankAccountContract.createAccount(otherOwners);
+    };
+    return _createAccountFixture;
   };
 
   describe("Test Contract Deployment", () => {
@@ -112,6 +123,39 @@ describe("Test BankAccount Contract", () => {
         "Can't create an account with duplicate owners entry."
       );
       expect(await BankAccountContract.getUserAccountsCount()).to.equal(0);
+    });
+  });
+
+  describe("Test deposit", () => {
+    it("Only account owners can deposit to the account", async () => {
+      const { BankAccountContract, user1, user2 } = await loadFixture(
+        deploymentFixture
+      );
+      await loadFixture(
+        createAccountFixture(BankAccountContract, [user1.address])
+      );
+      await expect(
+        BankAccountContract.connect(user2).deposit(1, {
+          value: ethers.utils.parseEther("1"),
+        })
+      ).to.be.revertedWith(
+        "Only account owners can make a deposit to this account"
+      );
+    });
+
+    it("Deposit to an account successfully", async () => {
+      const { BankAccountContract, user1 } = await loadFixture(
+        deploymentFixture
+      );
+      await loadFixture(
+        createAccountFixture(BankAccountContract, [user1.address])
+      );
+      expect(await BankAccountContract.getAccountBalance(1)).to.equal(0);
+      const amount = ethers.utils.parseEther("1");
+      await BankAccountContract.deposit(1, {
+        value: amount,
+      });
+      expect(await BankAccountContract.getAccountBalance(1)).to.equal(amount);
     });
   });
 });
