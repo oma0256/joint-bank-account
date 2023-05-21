@@ -16,7 +16,7 @@ contract BankAccount {
         uint256 timestamp
     );
 
-    event WithdrawlRequest(
+    event WithdrawalRequest(
         address indexed user,
         uint256 indexed accountId,
         uint256 withdrawRequestId,
@@ -94,12 +94,16 @@ contract BankAccount {
         }
         require(
             _isAccountOwner,
-            "Only account owners can make a deposit to this account"
+            "Only account owners can perform this action."
         );
         _;
     }
 
-    modifier hasSufficientBalance(uint accountId, uint amount) {
+    modifier canRequestWithdrawl(uint accountId, uint amount) {
+        require(
+            amount > 0,
+            "Amount requesting for withdraw must be greater than 0."
+        );
         require(accounts[accountId].balance >= amount, "Insufficient balance.");
         _;
     }
@@ -138,20 +142,20 @@ contract BankAccount {
         emit Deposit(msg.sender, accountId, msg.value, block.timestamp);
     }
 
-    function requestWithdrawl(
+    function requestWithdrawal(
         uint accountId,
         uint amount
     )
         external
         isAccountOwner(accountId)
-        hasSufficientBalance(accountId, amount)
+        canRequestWithdrawl(accountId, amount)
     {
         currentWithdrawRequestId++;
         WithdrawRequest storage withdrawRequest = accounts[accountId]
             .withdrawRequests[currentWithdrawRequestId];
         withdrawRequest.amount = amount;
         withdrawRequest.user = msg.sender;
-        emit WithdrawlRequest(
+        emit WithdrawalRequest(
             msg.sender,
             accountId,
             currentWithdrawRequestId,
@@ -202,9 +206,10 @@ contract BankAccount {
         uint amount = accounts[accountId]
             .withdrawRequests[withdrawalRequestId]
             .amount;
+        require(accounts[accountId].balance >= amount, "Insufficient funds.");
         accounts[accountId].balance -= amount;
         (bool sent, ) = payable(msg.sender).call{value: amount}("");
-        require(sent);
+        require(sent, "Unable to send funds.");
         emit Withdraw(
             msg.sender,
             accountId,
