@@ -1,24 +1,33 @@
+import fs from "fs/promises";
 import { ethers } from "hardhat";
 
-async function main() {
-  const currentTimestampInSeconds = Math.round(Date.now() / 1000);
-  const unlockTime = currentTimestampInSeconds + 60;
+import { BankAccount } from "../typechain-types";
 
-  const lockedAmount = ethers.utils.parseEther("0.001");
+async function deployBankAccount() {
+  const BankAccount = await ethers.getContractFactory("BankAccount");
+  const bankAccount = await BankAccount.deploy();
 
-  const Lock = await ethers.getContractFactory("Lock");
-  const lock = await Lock.deploy(unlockTime, { value: lockedAmount });
+  await bankAccount.deployed();
+  writeDeploymentInfo(bankAccount);
+}
 
-  await lock.deployed();
+async function writeDeploymentInfo(contract: BankAccount) {
+  const signerAddress = await contract.signer.getAddress();
+  const data = {
+    contract: {
+      address: contract.address,
+      signerAddress,
+      abi: contract.interface.format(),
+    },
+  };
 
-  console.log(
-    `Lock with ${ethers.utils.formatEther(lockedAmount)}ETH and unlock timestamp ${unlockTime} deployed to ${lock.address}`
-  );
+  const content = JSON.stringify(data, null, 2);
+  await fs.writeFile("deployment.json", content, { encoding: "utf-8" });
 }
 
 // We recommend this pattern to be able to use async/await everywhere
 // and properly handle errors.
-main().catch((error) => {
+deployBankAccount().catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });
